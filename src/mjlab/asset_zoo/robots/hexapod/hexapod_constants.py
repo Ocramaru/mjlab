@@ -94,6 +94,18 @@ HEXAPOD_TIBIA_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
   armature=MG995_ARMATURE,
 )
 
+# Pan/tilt head SG90s.  Published stall 1.8 kgf.cm at 4.8 V -> 0.176 N.m,
+# derated like the MG995s.  Gains are modelled, not calibrated: the head
+# carries ~30 g, so tracking is easy and these numbers are uncritical.
+SG90_EFFORT_LIMIT = 0.176 * MG995_DERATE
+HEXAPOD_HEAD_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
+  target_names_expr=("head_pan_joint", "head_tilt_joint"),
+  stiffness=1.0,
+  damping=0.03,
+  effort_limit=SG90_EFFORT_LIMIT,
+  armature=1.0e-5,
+)
+
 ##
 # Hardware mapping.
 ##
@@ -123,18 +135,19 @@ SERVO_CHANNELS: dict[str, int] = {
   "leg6_coxa_joint": 9,
   "leg6_femur_joint": 8,
   "leg6_tibia_joint": 31,
+  "head_tilt_joint": 0,
+  "head_pan_joint": 1,
 }
 
 # Legs 1-3 are the left side, 4-6 the right.  The MJCF keeps both sides
 # symmetric so the policy sees one leg; the mirroring is applied here instead.
 LEFT_LEGS = frozenset({1, 2, 3})
 
-# Direction of each servo relative to the model's joint. Stated per joint
-# rather than parsed out of the name, so renaming a joint is a KeyError
-# instead of a silently wrong sign.
-SERVO_SIGN: dict[str, float] = {
-  name: (1.0 if int(name[3]) in LEFT_LEGS else -1.0) for name in SERVO_CHANNELS
-}
+
+def _leg_number(joint_name: str) -> int | None:
+  """The leg a joint belongs to, or None for the head."""
+  return int(joint_name[3]) if joint_name.startswith("leg") else None
+
 
 # Per-servo trim, degrees, added after the sign is applied.
 #
@@ -163,9 +176,15 @@ SERVO_MAX_DEG = 180.0
 #           angle.  Cross-check: their installation script drives right
 #           tibias to 10 and left tibias to 170 -- both are qpos = -10 deg
 #           through this map, the same slightly-bent install pose.
+# Head servos: centre 90 assumed for both, signs UNVERIFIED on hardware --
+# check with one small command per joint before trusting, like the legs.
 _SERVO_MAP: dict[str, tuple[float, float]] = {}
 for _n in SERVO_CHANNELS:
-  _left = int(_n[3]) in LEFT_LEGS
+  _leg = _leg_number(_n)
+  if _leg is None:
+    _SERVO_MAP[_n] = (90.0, 1.0)
+    continue
+  _left = _leg in LEFT_LEGS
   if "tibia" in _n:
     _SERVO_MAP[_n] = (180.0, 1.0) if _left else (0.0, -1.0)
   elif "femur" in _n:
@@ -260,6 +279,7 @@ HEXAPOD_ARTICULATION = EntityArticulationInfoCfg(
     HEXAPOD_COXA_ACTUATOR_CFG,
     HEXAPOD_FEMUR_ACTUATOR_CFG,
     HEXAPOD_TIBIA_ACTUATOR_CFG,
+    HEXAPOD_HEAD_ACTUATOR_CFG,
   ),
   soft_joint_pos_limit_factor=0.9,
 )
