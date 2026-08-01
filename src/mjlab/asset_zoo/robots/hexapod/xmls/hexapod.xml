@@ -1,0 +1,243 @@
+<mujoco model="hexapod">
+  <!-- Freenove Big Hexapod Kit for Raspberry Pi.
+
+       Geometry measured from the manufacturer's STEP assembly by locating the
+       servo horns, which sit on the output shafts and so mark the joint axes.
+       Offsets were solved across all six legs to separate fixed structure from
+       the pose the assembly was saved in.  See tests/test_hexapod_geometry.py.
+
+       Frame: x forward, y left, z up.  Origin is the centre of the chassis
+       box, which is the CAD origin shifted +33.8 mm in z.
+
+       Forward is -90 deg in the CAD frame (ultrasonic and camera tower sit
+       there), so robot yaw = CAD yaw + 90.
+
+       leg  CAD yaw  yaw   hip r  side   position    servos (coxa,femur,tibia)
+        1      54    144    93.8  left   rear-left   22, 23, 27
+        2       0     90    85.0  left   mid-left    19, 20, 21
+        3     -54     36    93.8  left   front-left  16, 17, 18
+        4    -126    -36    93.8  right  front-right 15, 14, 13
+        5     180    -90    85.0  right  mid-right   12, 11, 10
+        6     126   -144    93.8  right  rear-right   9,  8, 31
+
+       Channels verified on hardware by wiggling individual servos --
+       Freenove's own leg numbering runs the opposite way around the body.
+
+       Link offsets, identical on every leg (y mirrors on the right side):
+         hip -> coxa axis   (r, 0, +31.8) mm
+         coxa -> femur      (33.3, +/-11.8, -39.3) mm
+         femur -> tibia     90.0 mm
+         tibia -> foot      110.0 mm
+
+       Joint sign convention: positive lifts the foot on every leg, and
+       positive coxa yaws the leg left.  Left/right mirroring lives in the
+       coxa offset, not the joint axes, so a policy sees one symmetric leg.
+       Servo mapping at deploy: servo_deg = 90 + side_sign * degrees(qpos).
+
+       Mass and inertia come from <inertial> elements solved from the CAD
+       (thirdparty/hexapod-cad/tools/solve_inertia.py); the collision geoms
+       are massless so there is a single source of truth.  A servo's body
+       rides on the link it is bolted to, so all six coxa servos are part
+       of the chassis, not the legs. -->
+
+  <compiler angle="degree" autolimits="true"/>
+
+<!-- Default values for the hexapod robot -->
+  <default>
+    <default class="hexapod">
+      <joint range="-90 90"/>
+      <geom type="capsule"/>
+      <!-- Radii track plate thickness (5 mm), not the brackets' overall
+           footprint.  The coxa radius also has to clear the chassis lid:
+           its capsule cap is centred on the hip at z = +31.8 mm and the
+           box top is at +38.8 mm. -->
+      <default class="coxa">
+        <!-- Legs sit 54 deg apart.  Sweeping one coxa alone, adjacent tibiae
+             meet at 68 deg; sweeping both neighbours toward each other they
+             meet at 36 deg.  30 deg leaves margin on the honest figure.
+             Femur and tibia are limited by the servo (0-180 deg), not by
+             geometry: neither self-collides anywhere in +/-90. -->
+        <joint range="-30 30"/>
+        <geom size="0.006" mass="0"/>
+      </default>
+      <default class="femur">
+        <geom size="0.010" mass="0"/>
+      </default>
+      <default class="tibia">
+        <!-- The tibia servo is clocked at the straight-leg position, not at
+             its 90 deg centre: Freenove's installation script sets tibia
+             channels to 10/170 before the horn is bolted on, and their
+             command equals the flexion angle directly.  So the joint can
+             fold but never extend past straight.  Collision sweep: the foot
+             meets the chassis at -168 deg, its own coxa at -172. -->
+        <joint range="-160 0"/>
+        <geom size="0.008" mass="0"/>
+      </default>
+      <default class="foot">
+        <geom type="sphere" size="0.006" mass="0"/>
+      </default>
+    </default>
+  </default>
+
+<!-- Collision geometries for full hexapod -->
+  <worldbody>
+    <!-- Spawn height is a placeholder; mjlab sets it via InitialStateCfg. -->
+    <body name="base" pos="0 0 0.15" childclass="hexapod">
+      <freejoint name="root"/>
+      <inertial pos="0.01067 0.00001 0.01220" mass="1.1139"
+                fullinertia="3.982e-03 4.305e-03 5.768e-03 -1.942e-05 -4.605e-04 -7.324e-06"/>
+      <!-- Chassis plate stack, modelled as one box: three 5 mm plates
+           spanning CAD z -72.6 to +5 mm, centred on the body origin.
+           Half-sizes are in the ROBOT frame (174 x 190 mm), which is the
+           CAD footprint with x and y swapped by the +90 deg yaw. -->
+      <geom name="base_col" type="box" size="0.087 0.095 0.0388"
+            pos="0 0 0" mass="0"/>
+
+      <body name="leg1_coxa" pos="-0.075886 0.055134 0.0318" euler="0 0 144">
+        <inertial pos="0.02917 -0.01084 -0.02647" mass="0.0787"
+                  fullinertia="2.370e-05 3.266e-05 2.391e-05 1.442e-06 2.279e-06 -4.832e-07"/>
+        <joint name="leg1_coxa_joint" class="coxa" axis="0 0 1"/>
+        <geom name="leg1_coxa_col" class="coxa"
+              fromto="0 0 0  0.0333 0.0118 -0.0393"/>
+        <body name="leg1_femur" pos="0.0333 0.0118 -0.0393">
+          <inertial pos="0.04446 0.00235 0.00410" mass="0.0127"
+                    fullinertia="4.952e-06 9.717e-06 1.222e-05 9.084e-08 -2.539e-07 1.190e-07"/>
+          <joint name="leg1_femur_joint" axis="0 -1 0"/>
+          <geom name="leg1_femur_col" class="femur" fromto="0 0 0  0.090 0 0"/>
+          <body name="leg1_tibia" pos="0.090 0 0">
+            <inertial pos="0.01303 -0.02281 0.00060" mass="0.0716"
+                      fullinertia="1.744e-05 3.756e-05 3.618e-05 -2.797e-06 -2.305e-07 2.594e-09"/>
+            <joint name="leg1_tibia_joint" class="tibia" axis="0 -1 0"/>
+            <geom name="leg1_tibia_col" class="tibia" fromto="0 0 0  0.096 0 0"/>
+            <geom name="leg1_foot_col" class="foot" pos="0.104 0 0"/>
+            <site name="leg1_foot" pos="0.110 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="leg2_coxa" pos="0.000000 0.085000 0.0318" euler="0 0 90">
+        <inertial pos="0.02917 -0.01084 -0.02647" mass="0.0787"
+                  fullinertia="2.370e-05 3.266e-05 2.391e-05 1.442e-06 2.279e-06 -4.832e-07"/>
+        <joint name="leg2_coxa_joint" class="coxa" axis="0 0 1"/>
+        <geom name="leg2_coxa_col" class="coxa"
+              fromto="0 0 0  0.0333 0.0118 -0.0393"/>
+        <body name="leg2_femur" pos="0.0333 0.0118 -0.0393">
+          <inertial pos="0.04446 0.00235 0.00410" mass="0.0127"
+                    fullinertia="4.952e-06 9.717e-06 1.222e-05 9.084e-08 -2.539e-07 1.190e-07"/>
+          <joint name="leg2_femur_joint" axis="0 -1 0"/>
+          <geom name="leg2_femur_col" class="femur" fromto="0 0 0  0.090 0 0"/>
+          <body name="leg2_tibia" pos="0.090 0 0">
+            <inertial pos="0.01303 -0.02281 0.00060" mass="0.0716"
+                      fullinertia="1.744e-05 3.756e-05 3.618e-05 -2.797e-06 -2.305e-07 2.594e-09"/>
+            <joint name="leg2_tibia_joint" class="tibia" axis="0 -1 0"/>
+            <geom name="leg2_tibia_col" class="tibia" fromto="0 0 0  0.096 0 0"/>
+            <geom name="leg2_foot_col" class="foot" pos="0.104 0 0"/>
+            <site name="leg2_foot" pos="0.110 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="leg3_coxa" pos="0.075886 0.055134 0.0318" euler="0 0 36">
+        <inertial pos="0.02917 -0.01084 -0.02647" mass="0.0787"
+                  fullinertia="2.370e-05 3.266e-05 2.391e-05 1.442e-06 2.279e-06 -4.832e-07"/>
+        <joint name="leg3_coxa_joint" class="coxa" axis="0 0 1"/>
+        <geom name="leg3_coxa_col" class="coxa"
+              fromto="0 0 0  0.0333 0.0118 -0.0393"/>
+        <body name="leg3_femur" pos="0.0333 0.0118 -0.0393">
+          <inertial pos="0.04446 0.00235 0.00410" mass="0.0127"
+                    fullinertia="4.952e-06 9.717e-06 1.222e-05 9.084e-08 -2.539e-07 1.190e-07"/>
+          <joint name="leg3_femur_joint" axis="0 -1 0"/>
+          <geom name="leg3_femur_col" class="femur" fromto="0 0 0  0.090 0 0"/>
+          <body name="leg3_tibia" pos="0.090 0 0">
+            <inertial pos="0.01303 -0.02281 0.00060" mass="0.0716"
+                      fullinertia="1.744e-05 3.756e-05 3.618e-05 -2.797e-06 -2.305e-07 2.594e-09"/>
+            <joint name="leg3_tibia_joint" class="tibia" axis="0 -1 0"/>
+            <geom name="leg3_tibia_col" class="tibia" fromto="0 0 0  0.096 0 0"/>
+            <geom name="leg3_foot_col" class="foot" pos="0.104 0 0"/>
+            <site name="leg3_foot" pos="0.110 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="leg4_coxa" pos="0.075886 -0.055134 0.0318" euler="0 0 -36">
+        <inertial pos="0.02917 0.01084 -0.02647" mass="0.0787"
+                  fullinertia="2.370e-05 3.266e-05 2.391e-05 -1.442e-06 2.279e-06 4.832e-07"/>
+        <joint name="leg4_coxa_joint" class="coxa" axis="0 0 1"/>
+        <geom name="leg4_coxa_col" class="coxa"
+              fromto="0 0 0  0.0333 -0.0118 -0.0393"/>
+        <body name="leg4_femur" pos="0.0333 -0.0118 -0.0393">
+          <inertial pos="0.04446 -0.00235 0.00410" mass="0.0127"
+                    fullinertia="4.952e-06 9.717e-06 1.222e-05 -9.084e-08 -2.539e-07 -1.190e-07"/>
+          <joint name="leg4_femur_joint" axis="0 -1 0"/>
+          <geom name="leg4_femur_col" class="femur" fromto="0 0 0  0.090 0 0"/>
+          <body name="leg4_tibia" pos="0.090 0 0">
+            <inertial pos="0.01303 0.02281 0.00060" mass="0.0716"
+                      fullinertia="1.744e-05 3.756e-05 3.618e-05 2.797e-06 -2.305e-07 -2.594e-09"/>
+            <joint name="leg4_tibia_joint" class="tibia" axis="0 -1 0"/>
+            <geom name="leg4_tibia_col" class="tibia" fromto="0 0 0  0.096 0 0"/>
+            <geom name="leg4_foot_col" class="foot" pos="0.104 0 0"/>
+            <site name="leg4_foot" pos="0.110 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="leg5_coxa" pos="0.000000 -0.085000 0.0318" euler="0 0 -90">
+        <inertial pos="0.02917 0.01084 -0.02647" mass="0.0787"
+                  fullinertia="2.370e-05 3.266e-05 2.391e-05 -1.442e-06 2.279e-06 4.832e-07"/>
+        <joint name="leg5_coxa_joint" class="coxa" axis="0 0 1"/>
+        <geom name="leg5_coxa_col" class="coxa"
+              fromto="0 0 0  0.0333 -0.0118 -0.0393"/>
+        <body name="leg5_femur" pos="0.0333 -0.0118 -0.0393">
+          <inertial pos="0.04446 -0.00235 0.00410" mass="0.0127"
+                    fullinertia="4.952e-06 9.717e-06 1.222e-05 -9.084e-08 -2.539e-07 -1.190e-07"/>
+          <joint name="leg5_femur_joint" axis="0 -1 0"/>
+          <geom name="leg5_femur_col" class="femur" fromto="0 0 0  0.090 0 0"/>
+          <body name="leg5_tibia" pos="0.090 0 0">
+            <inertial pos="0.01303 0.02281 0.00060" mass="0.0716"
+                      fullinertia="1.744e-05 3.756e-05 3.618e-05 2.797e-06 -2.305e-07 -2.594e-09"/>
+            <joint name="leg5_tibia_joint" class="tibia" axis="0 -1 0"/>
+            <geom name="leg5_tibia_col" class="tibia" fromto="0 0 0  0.096 0 0"/>
+            <geom name="leg5_foot_col" class="foot" pos="0.104 0 0"/>
+            <site name="leg5_foot" pos="0.110 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+
+      <body name="leg6_coxa" pos="-0.075886 -0.055134 0.0318" euler="0 0 -144">
+        <inertial pos="0.02917 0.01084 -0.02647" mass="0.0787"
+                  fullinertia="2.370e-05 3.266e-05 2.391e-05 -1.442e-06 2.279e-06 4.832e-07"/>
+        <joint name="leg6_coxa_joint" class="coxa" axis="0 0 1"/>
+        <geom name="leg6_coxa_col" class="coxa"
+              fromto="0 0 0  0.0333 -0.0118 -0.0393"/>
+        <body name="leg6_femur" pos="0.0333 -0.0118 -0.0393">
+          <inertial pos="0.04446 -0.00235 0.00410" mass="0.0127"
+                    fullinertia="4.952e-06 9.717e-06 1.222e-05 -9.084e-08 -2.539e-07 -1.190e-07"/>
+          <joint name="leg6_femur_joint" axis="0 -1 0"/>
+          <geom name="leg6_femur_col" class="femur" fromto="0 0 0  0.090 0 0"/>
+          <body name="leg6_tibia" pos="0.090 0 0">
+            <inertial pos="0.01303 0.02281 0.00060" mass="0.0716"
+                      fullinertia="1.744e-05 3.756e-05 3.618e-05 2.797e-06 -2.305e-07 -2.594e-09"/>
+            <joint name="leg6_tibia_joint" class="tibia" axis="0 -1 0"/>
+            <geom name="leg6_tibia_col" class="tibia" fromto="0 0 0  0.096 0 0"/>
+            <geom name="leg6_foot_col" class="foot" pos="0.104 0 0"/>
+            <site name="leg6_foot" pos="0.110 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- MuJoCo excludes parent-child pairs automatically, but not
+       grandparent-grandchild.  Each femur servo is bolted at the body edge,
+       so its capsule overlaps the chassis box by a millimetre or two at every
+       joint angle; that is an artifact of approximating an L-bracket assembly
+       with capsules, not a real collision. -->
+  <contact>
+    <exclude body1="base" body2="leg1_femur"/>
+    <exclude body1="base" body2="leg2_femur"/>
+    <exclude body1="base" body2="leg3_femur"/>
+    <exclude body1="base" body2="leg4_femur"/>
+    <exclude body1="base" body2="leg5_femur"/>
+    <exclude body1="base" body2="leg6_femur"/>
+  </contact>
+</mujoco>
